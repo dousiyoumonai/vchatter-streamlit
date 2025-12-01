@@ -124,7 +124,7 @@ if not st.session_state.authenticated:
             st.session_state.history_p = []
             st.session_state.history_h = []
             st.success("ログインしました。上のメニューから実験を開始してください。")
-            st.experimental_rerun()
+            st.rerun()
     st.stop()
 
 
@@ -261,3 +261,4 @@ if LOG_FILE.exists():
         )
 else:
     st.text("まだログファイルがありません。")
+
