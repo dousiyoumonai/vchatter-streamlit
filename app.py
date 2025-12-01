@@ -117,15 +117,18 @@ if not st.session_state.authenticated:
         elif passcode != ADMIN_PASSCODE:
             st.error("管理用パスコードが間違っています。")
         else:
+            # ログイン成功：状態をセット
             st.session_state.authenticated = True
             st.session_state.participant_id = participant_id.strip()
             st.session_state.day = day
-            # セッションごとの履歴も初期化
             st.session_state.history_p = []
             st.session_state.history_h = []
             st.success("ログインしました。上のメニューから実験を開始してください。")
-            st.rerun()
-    st.stop()
+
+    # ここで「まだ」ログインできていなければ終了
+    if not st.session_state.authenticated:
+        st.stop()
+
 
 
 # ======================
@@ -261,4 +264,5 @@ if LOG_FILE.exists():
         )
 else:
     st.text("まだログファイルがありません。")
+
 
