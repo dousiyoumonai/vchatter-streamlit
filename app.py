@@ -202,8 +202,8 @@ JSON以外の文字は出さないこと。
 """
 
     # ★ここ：実際に送る system_prompt を画面で確認できるようにする（研究者用）★
-    with st.expander("研究者用：現在の system prompt", expanded=False):
-        st.write(system_prompt)
+    #with st.expander("研究者用：現在の system prompt", expanded=False):
+        #st.write(system_prompt)
 
     messages = [{"role": "system", "content": system_prompt}] + [
         {"role": m["role"], "content": m["content"]} for m in get_history()
@@ -268,6 +268,7 @@ if LOG_FILE.exists():
         )
 else:
     st.text("まだログファイルがありません。")
+
 
 
 
