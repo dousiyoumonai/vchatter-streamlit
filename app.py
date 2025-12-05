@@ -378,7 +378,7 @@ if user_input:
     # ログにも書いておく（ユーザー側）
     log_row(participant_id, day, current_agent_label, "user", user_input, "")
 
-      # ==== system_prompt を組み立て ====
+    # ==== system_prompt を組み立て ====
     if agent.startswith("Agent-P"):
         # day / level 情報を先頭に f-string で付ける（ここには { } を含めてもOK）
         header = f"""
@@ -504,6 +504,7 @@ if LOG_FILE.exists():
         )
 else:
     st.text("まだログファイルがありません。")
+
 
 
 
