@@ -81,6 +81,48 @@ def load_plan_from_file(participant_id, day, level_en):
     with fname.open("r", encoding="utf-8") as f:
         return json.load(f)
 
+# ======================
+# 過去のPセッション会話の読み込み
+# ======================
+
+def load_previous_p_history(participant_id, current_day, max_messages=20):
+    """
+    CSVログから、同じ参加者の「過去の Agent-P 会話」を
+    最大 max_messages 件だけ読み出して、
+    OpenAI形式の messages（role / content）リストで返す。
+    """
+    if not LOG_FILE.exists():
+        return []
+
+    rows = []
+    # 書き出しが cp932 なので読み込みも cp932
+    with LOG_FILE.open("r", encoding="cp932") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            if row.get("participant_id") != participant_id:
+                continue
+            if row.get("agent") != "Agent-P":
+                continue
+            try:
+                d = int(row.get("day", "0"))
+            except ValueError:
+                continue
+            # 「今日より前の日」だけを拾う
+            if d >= current_day:
+                continue
+            rows.append(row)
+
+    # 一番新しいほうから max_messages 件だけ使う
+    rows = rows[-max_messages:]
+
+    history = []
+    for r in rows:
+        role = r.get("role")
+        text = r.get("text", "")
+        if role not in ("user", "assistant"):
+            continue
+        history.append({"role": role, "content": text})
+    return history
 
 
 
@@ -443,6 +485,7 @@ if LOG_FILE.exists():
         )
 else:
     st.text("まだログファイルがありません。")
+
 
 
 
