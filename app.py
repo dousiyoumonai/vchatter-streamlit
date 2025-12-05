@@ -95,10 +95,12 @@ def load_previous_p_history(participant_id, current_day, max_messages=20):
         return []
 
     rows = []
-    # 書き出しが cp932 なので読み込みも cp932
-    with LOG_FILE.open("r", encoding="cp932") as f:
+    # 古いUTF-8ログが混ざっていても落ちないように、errors="ignore" を付ける
+    with LOG_FILE.open("r", encoding="cp932", errors="ignore") as f:
         reader = csv.DictReader(f)
         for row in reader:
+            ...
+
             if row.get("participant_id") != participant_id:
                 continue
             if row.get("agent") != "Agent-P":
@@ -508,6 +510,7 @@ if LOG_FILE.exists():
         )
 else:
     st.text("まだログファイルがありません。")
+
 
 
 
