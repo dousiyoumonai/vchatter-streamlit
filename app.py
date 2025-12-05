@@ -85,10 +85,10 @@ def load_plan_from_file(participant_id, day, level_en):
 # 過去のPセッション会話の読み込み
 # ======================
 
-def load_previous_p_history(participant_id, current_day, max_messages=20):
+def load_previous_p_history(participant_id, current_day):
     """
     CSVログから、同じ参加者の「過去の Agent-P 会話」を
-    最大 max_messages 件だけ読み出して、
+    すべて読み出して、
     OpenAI形式の messages（role / content）リストで返す。
     """
     if not LOG_FILE.exists():
@@ -99,7 +99,6 @@ def load_previous_p_history(participant_id, current_day, max_messages=20):
     with LOG_FILE.open("r", encoding="cp932", errors="ignore") as f:
         reader = csv.DictReader(f)
         for row in reader:
-
             if row.get("participant_id") != participant_id:
                 continue
             if row.get("agent") != "Agent-P":
@@ -113,8 +112,7 @@ def load_previous_p_history(participant_id, current_day, max_messages=20):
                 continue
             rows.append(row)
 
-    # 一番新しいほうから max_messages 件だけ使う
-    rows = rows[-max_messages:]
+    # ★ ここで「最後のN件だけに絞る」処理はしない＝全部使う
 
     history = []
     for r in rows:
@@ -124,9 +122,6 @@ def load_previous_p_history(participant_id, current_day, max_messages=20):
             continue
         history.append({"role": role, "content": text})
     return history
-
-
-
 
 # ======================
 # Agent-P / Agent-H プロンプト
@@ -509,6 +504,7 @@ if LOG_FILE.exists():
         )
 else:
     st.text("まだログファイルがありません。")
+
 
 
 
