@@ -41,19 +41,18 @@ LOG_HEADERS = [
 
 def init_log_file():
     if not LOG_FILE.exists():
-        # ★ Excel（日本語環境）が期待する cp932 で書き出す
+        # Excel（日本語環境）が期待する cp932 で書き出す
         with LOG_FILE.open("w", newline="", encoding="cp932") as f:
             writer = csv.writer(f)
             writer.writerow(LOG_HEADERS)
 
-
 def log_row(participant_id, day, agent, role, text, emotion=""):
     init_log_file()
     now = datetime.now().isoformat()
-    # ★ ここも cp932
     with LOG_FILE.open("a", newline="", encoding="cp932") as f:
         writer = csv.writer(f)
         writer.writerow([now, participant_id, day, agent, role, text, emotion])
+
 
 # ======================
 # plan の保存・読み込み（JSON）
@@ -74,12 +73,14 @@ def save_plan_to_file(participant_id, day, level_en, plan: dict):
 def load_plan_from_file(participant_id, day, level_en):
     """
     保存済みの plan を読み込む。なければ None を返す。
+    （今は「同じ day のみ」見る。必要なら過去 day もさかのぼる仕様にしてもよい）
     """
     fname = PLAN_DIR / f"{participant_id}_day{day}_{level_en}.json"
     if not fname.exists():
         return None
     with fname.open("r", encoding="utf-8") as f:
         return json.load(f)
+
 
 # ======================
 # 過去のPセッション会話の読み込み
@@ -112,8 +113,6 @@ def load_previous_p_history(participant_id, current_day):
                 continue
             rows.append(row)
 
-    # ★ ここで「最後のN件だけに絞る」処理はしない＝全部使う
-
     history = []
     for r in rows:
         role = r.get("role")
@@ -123,11 +122,11 @@ def load_previous_p_history(participant_id, current_day):
         history.append({"role": role, "content": text})
     return history
 
+
 # ======================
 # Agent-P / Agent-H プロンプト
 # ======================
 
-# ★ P 用の「共通ボディ」（day や level はここには直接入れない）
 AGENT_P_SYSTEM_PROMPT_BODY = """
 あなたは女性の心理療法士「Miss.Tree」です。クライアントは社交不安傾向のある人です。
 あなたの目的は、会話を通じてクライアントが恐れている具体的な場面とその強さを明らかにし、
@@ -242,7 +241,6 @@ AGENT_H_FALLBACK_PROMPT = """
 あなたが返すJSONでは、必ず "plan": null にしてください。
 """
 
-# JSON 形式の共通指示（P/H両方に付ける）
 JSON_INSTRUCTION = """
 必ず次のJSON形式で返答してください：
 {
@@ -380,7 +378,6 @@ if user_input:
 
     # ==== system_prompt を組み立て ====
     if agent.startswith("Agent-P"):
-        # day / level 情報を先頭に f-string で付ける（ここには { } を含めてもOK）
         header = f"""
 今日は全6日間のオンライン暴露トレーニングのうち「{day}日目」です。
 想定している暴露レベルは「{level_ja}」（level = "{level_en}"）です。
@@ -411,15 +408,9 @@ if user_input:
 
     system_prompt = base_prompt + JSON_INSTRUCTION
 
-    # ★ ここで現在の plans の中身を確認できるようにする
-    if "plans" in st.session_state:
-        with st.expander("研究者用：現在の保存済みプラン一覧", expanded=False):
-            st.write(st.session_state.plans)
-
-    # 研究者用に現在の system prompt を確認できるように
+    # 研究者用：現在の system prompt を確認
     with st.expander("研究者用：現在の system prompt", expanded=False):
         st.write(system_prompt)
-
 
     # ★ Agent-P のときだけ、過去のPセッションの会話を読み込む
     previous_p_history = []
@@ -429,8 +420,6 @@ if user_input:
             day,
         )
 
-
-    # messages = [system] + (過去のP会話) + (今日のセッションの履歴)
     messages = (
         [{"role": "system", "content": system_prompt}]
         + previous_p_history
@@ -456,6 +445,7 @@ if user_input:
             if res.status_code != 200:
                 st.error(f"OpenRouter API エラー: {res.status_code} {res.text}")
                 st.stop()
+
             data = res.json()
             raw = data["choices"][0]["message"]["content"]
 
@@ -464,7 +454,6 @@ if user_input:
 
             # もし ``` で囲まれていたら中身だけ抜き出す
             if clean.startswith("```"):
-                # 例: ```json\n{...}\n``` の形を想定
                 first_nl = clean.find("\n")
                 last_fence = clean.rfind("```")
                 if first_nl != -1 and last_fence != -1:
@@ -481,7 +470,6 @@ if user_input:
             try:
                 parsed = json.loads(json_str)
             except Exception:
-                # パースに失敗した場合は、とりあえずそのままテキストとして扱う
                 parsed = {}
                 raw_text = raw
             else:
@@ -491,7 +479,7 @@ if user_input:
             emotion = parsed.get("emotion", "unknown")
             plan = parsed.get("plan", None)
 
-            # ★ デバッグ用：生レスポンスとパース結果を確認
+            # デバッグ用：生レスポンスとパース結果
             with st.expander("研究者用：LLM生レスポンス＆パース結果", expanded=False):
                 st.write("raw:", raw)
                 st.write("clean(for json):", clean)
@@ -499,24 +487,17 @@ if user_input:
                 st.write("parsed:", parsed)
                 st.write("plan type:", str(type(plan)))
 
-
-            # ★ plan が dict なら、必ず保存する
+            # plan が dict なら、保存（メモリ＋ファイル）
             if isinstance(plan, dict):
-                # plan 内に level があればそれを優先
                 plan_level = plan.get("level", level_en)
                 if plan_level not in ("low", "medium", "high"):
-                    plan_level = level_en  # おかしな値なら今の day の level を使う
+                    plan_level = level_en
 
-                # セッション内に保存
                 st.session_state.plans[plan_level] = plan
-
-                # ファイルにも保存（参加者ID＋day＋level）
                 save_plan_to_file(participant_id, day, plan_level, plan)
 
                 with st.expander("研究者用：保存された暴露プラン", expanded=True):
                     st.write(plan)
-
-
 
         st.markdown(reply_text)
         st.caption(f"emotion: {emotion}")
@@ -526,6 +507,14 @@ if user_input:
 
     # ログにも書く（アシスタント側）
     log_row(participant_id, day, current_agent_label, "assistant", reply_text, emotion)
+
+
+# ======================
+# 研究者用：現在の保存済みプラン一覧（常に一番下に最新を出す）
+# ======================
+
+with st.expander("研究者用：現在の保存済みプラン一覧", expanded=False):
+    st.write(st.session_state.get("plans", {}))
 
 
 # ======================
@@ -545,20 +534,3 @@ if LOG_FILE.exists():
         )
 else:
     st.text("まだログファイルがありません。")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
