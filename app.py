@@ -467,14 +467,22 @@ if user_input:
             emotion = parsed.get("emotion", "unknown")
             plan = parsed.get("plan", None)
 
-            # Pがplanを出してきた場合は保存（メモリ＋ファイル）
-            if agent.startswith("Agent-P") and isinstance(plan, dict):
-                st.session_state.plans[level_en] = plan
-                # ★ JSONファイルにも保存
-                save_plan_to_file(participant_id, day, level_en, plan)
+            # ★ plan が dict なら、必ず保存する（念のため agent には依存しない）
+            if isinstance(plan, dict):
+                # plan 内に level があればそれを優先
+                plan_level = plan.get("level", level_en)
+                if plan_level not in ("low", "medium", "high"):
+                    plan_level = level_en  # おかしな値なら今の day の level を使う
+
+                # セッション内に保存
+                st.session_state.plans[plan_level] = plan
+
+                # ファイルにも保存（参加者ID＋day＋level）
+                save_plan_to_file(participant_id, day, plan_level, plan)
 
                 with st.expander("研究者用：保存された暴露プラン", expanded=True):
                     st.write(plan)
+
 
 
         st.markdown(reply_text)
@@ -504,6 +512,7 @@ if LOG_FILE.exists():
         )
 else:
     st.text("まだログファイルがありません。")
+
 
 
 
