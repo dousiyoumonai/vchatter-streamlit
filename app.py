@@ -456,14 +456,24 @@ if user_input:
             if res.status_code != 200:
                 st.error(f"OpenRouter API エラー: {res.status_code} {res.text}")
                 st.stop()
-
             data = res.json()
             raw = data["choices"][0]["message"]["content"]
 
-            # JSONとして解釈
+            # ==== JSONとして解釈（```json ～ ``` で返ってきても対応する）====
+            clean = raw.strip()
+
+            # もし ``` で囲まれていたら中身だけ抜き出す
+            if clean.startswith("```"):
+                # 例: ```json\n{...}\n``` の形を想定
+                first_nl = clean.find("\n")
+                last_fence = clean.rfind("```")
+                if first_nl != -1 and last_fence != -1:
+                    clean = clean[first_nl+1:last_fence].strip()
+
             try:
-                parsed = json.loads(raw)
+                parsed = json.loads(clean)
             except Exception:
+                # パースに失敗した場合は、とりあえずそのままテキストとして扱う
                 parsed = {}
                 raw_text = raw
             else:
@@ -473,7 +483,14 @@ if user_input:
             emotion = parsed.get("emotion", "unknown")
             plan = parsed.get("plan", None)
 
-            # ★ plan が dict なら、必ず保存する（念のため agent には依存しない）
+            # ★ デバッグ用：生レスポンスとパース結果を確認
+            with st.expander("研究者用：LLM生レスポンス＆パース結果", expanded=False):
+                st.write("raw:", raw)
+                st.write("clean(for json):", clean)
+                st.write("parsed:", parsed)
+                st.write("plan type:", str(type(plan)))
+
+            # ★ plan が dict なら、必ず保存する
             if isinstance(plan, dict):
                 # plan 内に level があればそれを優先
                 plan_level = plan.get("level", level_en)
@@ -518,6 +535,7 @@ if LOG_FILE.exists():
         )
 else:
     st.text("まだログファイルがありません。")
+
 
 
 
