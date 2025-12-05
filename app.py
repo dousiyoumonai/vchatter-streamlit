@@ -419,9 +419,21 @@ if user_input:
     with st.expander("研究者用：現在の system prompt", expanded=False):
         st.write(system_prompt)
 
-    messages = [{"role": "system", "content": system_prompt}] + [
-        {"role": m["role"], "content": m["content"]} for m in get_history()
-    ]
+    # ★ Agent-P のときだけ、過去のPセッションの会話を読み込む
+    previous_p_history = []
+    if agent.startswith("Agent-P"):
+        previous_p_history = load_previous_p_history(
+            participant_id,
+            day,
+            max_messages=20,  # 必要に応じて10〜30くらいで調整
+        )
+
+    # messages = [system] + (過去のP会話) + (今日のセッションの履歴)
+    messages = (
+        [{"role": "system", "content": system_prompt}]
+        + previous_p_history
+        + [{"role": m["role"], "content": m["content"]} for m in get_history()]
+    )
 
     # ==== OpenRouter へ送信 ====
     with st.chat_message("assistant"):
@@ -459,11 +471,15 @@ if user_input:
             emotion = parsed.get("emotion", "unknown")
             plan = parsed.get("plan", None)
 
-            # Pがplanを出してきた場合は保存
+            # Pがplanを出してきた場合は保存（メモリ＋ファイル）
             if agent.startswith("Agent-P") and isinstance(plan, dict):
                 st.session_state.plans[level_en] = plan
+                # ★ JSONファイルにも保存
+                save_plan_to_file(participant_id, day, level_en, plan)
+
                 with st.expander("研究者用：保存された暴露プラン", expanded=True):
                     st.write(plan)
+
 
         st.markdown(reply_text)
         st.caption(f"emotion: {emotion}")
@@ -492,6 +508,7 @@ if LOG_FILE.exists():
         )
 else:
     st.text("まだログファイルがありません。")
+
 
 
 
