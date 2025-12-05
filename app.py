@@ -421,8 +421,8 @@ if user_input:
         previous_p_history = load_previous_p_history(
             participant_id,
             day,
-            max_messages=20,  # 必要に応じて10〜30くらいで調整
         )
+
 
     # messages = [system] + (過去のP会話) + (今日のセッションの履歴)
     messages = (
@@ -504,6 +504,7 @@ if LOG_FILE.exists():
         )
 else:
     st.text("まだログファイルがありません。")
+
 
 
 
