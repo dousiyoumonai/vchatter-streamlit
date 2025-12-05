@@ -421,12 +421,6 @@ if user_input:
         st.write(system_prompt)
 
 
-    system_prompt = base_prompt + JSON_INSTRUCTION
-
-    # 研究者用に現在の system prompt を確認できるように
-    with st.expander("研究者用：現在の system prompt", expanded=False):
-        st.write(system_prompt)
-
     # ★ Agent-P のときだけ、過去のPセッションの会話を読み込む
     previous_p_history = []
     if agent.startswith("Agent-P"):
@@ -524,6 +518,7 @@ if LOG_FILE.exists():
         )
 else:
     st.text("まだログファイルがありません。")
+
 
 
 
