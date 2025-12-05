@@ -459,7 +459,7 @@ if user_input:
             data = res.json()
             raw = data["choices"][0]["message"]["content"]
 
-            # ==== JSONとして解釈（```json ～ ``` で返ってきても対応する）====
+            # ==== JSONとして解釈（```json ～ ``` や前置きの文章があっても対応）====
             clean = raw.strip()
 
             # もし ``` で囲まれていたら中身だけ抜き出す
@@ -470,8 +470,16 @@ if user_input:
                 if first_nl != -1 and last_fence != -1:
                     clean = clean[first_nl+1:last_fence].strip()
 
+            # 先頭のしゃべりを飛ばして、{ ... } だけ抜き出す
+            start = clean.find("{")
+            end = clean.rfind("}")
+            if start != -1 and end != -1 and end > start:
+                json_str = clean[start:end+1]
+            else:
+                json_str = clean  # 最悪そのまま試す
+
             try:
-                parsed = json.loads(clean)
+                parsed = json.loads(json_str)
             except Exception:
                 # パースに失敗した場合は、とりあえずそのままテキストとして扱う
                 parsed = {}
@@ -487,8 +495,10 @@ if user_input:
             with st.expander("研究者用：LLM生レスポンス＆パース結果", expanded=False):
                 st.write("raw:", raw)
                 st.write("clean(for json):", clean)
+                st.write("json_str(for loads):", json_str)
                 st.write("parsed:", parsed)
                 st.write("plan type:", str(type(plan)))
+
 
             # ★ plan が dict なら、必ず保存する
             if isinstance(plan, dict):
@@ -535,6 +545,7 @@ if LOG_FILE.exists():
         )
 else:
     st.text("まだログファイルがありません。")
+
 
 
 
