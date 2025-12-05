@@ -99,7 +99,6 @@ def load_previous_p_history(participant_id, current_day, max_messages=20):
     with LOG_FILE.open("r", encoding="cp932", errors="ignore") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            ...
 
             if row.get("participant_id") != participant_id:
                 continue
@@ -510,6 +509,7 @@ if LOG_FILE.exists():
         )
 else:
     st.text("まだログファイルがありません。")
+
 
 
 
