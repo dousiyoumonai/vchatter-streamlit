@@ -382,7 +382,7 @@ if user_input:
     # ログにも書いておく（ユーザー側）
     log_row(participant_id, day, current_agent_label, "user", user_input, "")
 
-    # ==== system_prompt を組み立て ====
+      # ==== system_prompt を組み立て ====
     if agent.startswith("Agent-P"):
         # day / level 情報を先頭に f-string で付ける（ここには { } を含めてもOK）
         header = f"""
@@ -391,8 +391,13 @@ if user_input:
 """
         base_prompt = header + AGENT_P_SYSTEM_PROMPT_BODY
     else:
-        # H側：Pのplanがあればそれを使う
+        # H側：Pのplanがあればそれを使う（まずセッション中のメモリ）
         plan_for_level = st.session_state.plans.get(level_en)
+
+        # セッション中メモリに無ければ、ファイルから読み込む
+        if not plan_for_level:
+            plan_for_level = load_plan_from_file(participant_id, day, level_en)
+
         if plan_for_level and plan_for_level.get("scenarios"):
             s0 = plan_for_level["scenarios"][0]
             base_prompt = AGENT_H_SYSTEM_PROMPT_TEMPLATE.format(
@@ -403,8 +408,10 @@ if user_input:
                 exposure_scenario=s0.get("exposure_scenario", ""),
                 user_task=s0.get("user_task", ""),
             )
+            st.info("※ このAgent-Hは、Agent-Pが作成した暴露プランに基づいて話しています。")
         else:
             base_prompt = AGENT_H_FALLBACK_PROMPT
+            st.warning("※ まだこのレベルの暴露プランが保存されていません。Agent-Hは汎用の友人モードです。")
 
     system_prompt = base_prompt + JSON_INSTRUCTION
 
@@ -485,6 +492,7 @@ if LOG_FILE.exists():
         )
 else:
     st.text("まだログファイルがありません。")
+
 
 
 
