@@ -55,6 +55,33 @@ def log_row(participant_id, day, agent, role, text, emotion=""):
         writer = csv.writer(f)
         writer.writerow([now, participant_id, day, agent, role, text, emotion])
 
+# ======================
+# plan の保存・読み込み（JSON）
+# ======================
+
+PLAN_DIR = Path("plans")
+PLAN_DIR.mkdir(exist_ok=True)
+
+def save_plan_to_file(participant_id, day, level_en, plan: dict):
+    """
+    P が出した plan を JSON で保存する。
+    例: plans/000_day1_low.json
+    """
+    fname = PLAN_DIR / f"{participant_id}_day{day}_{level_en}.json"
+    with fname.open("w", encoding="utf-8") as f:
+        json.dump(plan, f, ensure_ascii=False, indent=2)
+
+def load_plan_from_file(participant_id, day, level_en):
+    """
+    保存済みの plan を読み込む。なければ None を返す。
+    """
+    fname = PLAN_DIR / f"{participant_id}_day{day}_{level_en}.json"
+    if not fname.exists():
+        return None
+    with fname.open("r", encoding="utf-8") as f:
+        return json.load(f)
+
+
 
 
 
@@ -416,6 +443,7 @@ if LOG_FILE.exists():
         )
 else:
     st.text("まだログファイルがありません。")
+
 
 
 
