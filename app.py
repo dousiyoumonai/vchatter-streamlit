@@ -41,8 +41,8 @@ LOG_HEADERS = [
 
 def init_log_file():
     if not LOG_FILE.exists():
-        # ★ Excel で文字化けしないよう utf-8-sig に変更
-        with LOG_FILE.open("w", newline="", encoding="utf-8-sig") as f:
+        # ★ Excel（日本語環境）が期待する cp932 で書き出す
+        with LOG_FILE.open("w", newline="", encoding="cp932") as f:
             writer = csv.writer(f)
             writer.writerow(LOG_HEADERS)
 
@@ -50,10 +50,11 @@ def init_log_file():
 def log_row(participant_id, day, agent, role, text, emotion=""):
     init_log_file()
     now = datetime.now().isoformat()
-    # ★ ここも utf-8-sig に
-    with LOG_FILE.open("a", newline="", encoding="utf-8-sig") as f:
+    # ★ ここも cp932
+    with LOG_FILE.open("a", newline="", encoding="cp932") as f:
         writer = csv.writer(f)
         writer.writerow([now, participant_id, day, agent, role, text, emotion])
+
 
 
 
@@ -415,5 +416,6 @@ if LOG_FILE.exists():
         )
 else:
     st.text("まだログファイルがありません。")
+
 
 
