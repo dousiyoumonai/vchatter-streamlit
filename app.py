@@ -39,12 +39,14 @@ LOG_HEADERS = [
     "emotion",
 ]
 
+
 def init_log_file():
     if not LOG_FILE.exists():
         # Excel（日本語環境）が期待する cp932 で書き出す
         with LOG_FILE.open("w", newline="", encoding="cp932") as f:
             writer = csv.writer(f)
             writer.writerow(LOG_HEADERS)
+
 
 def log_row(participant_id, day, agent, role, text, emotion=""):
     init_log_file()
@@ -55,11 +57,54 @@ def log_row(participant_id, day, agent, role, text, emotion=""):
 
 
 # ======================
+# day → level の対応（low / medium / high）
+# ======================
+
+def level_for_day(day: int) -> str:
+    """day から level_en を計算する小さいヘルパー"""
+    if day in (1, 2):
+        return "low"
+    elif day in (3, 4):
+        return "medium"
+    else:
+        return "high"
+
+
+def is_first_day_of_level(day: int) -> bool:
+    """そのレベルの1日目かどうか（1,3,5 が True）"""
+    return day in (1, 3, 5)
+
+
+def scenario_index_for_day(day: int, level_en: str, scenarios_len: int) -> int:
+    """
+    同じレベルの中で「何日目か」に応じて使うシナリオのインデックスを返す。
+    - low:  Day1 -> 0, Day2 -> 1
+    - medium: Day3 -> 0, Day4 -> 1
+    - high: Day5 -> 0, Day6 -> 1
+    scenarios_len が 1 しかない場合は 0 に丸める。
+    """
+    if level_en == "low":
+        start_day = 1  # Day1,2
+    elif level_en == "medium":
+        start_day = 3  # Day3,4
+    else:
+        start_day = 5  # Day5,6
+
+    idx = day - start_day  # 0 or 1 になる想定
+    if idx < 0:
+        idx = 0
+    if idx >= scenarios_len:
+        idx = scenarios_len - 1
+    return idx
+
+
+# ======================
 # plan の保存・読み込み（JSON）
 # ======================
 
 PLAN_DIR = Path("plans")
 PLAN_DIR.mkdir(exist_ok=True)
+
 
 def save_plan_to_file(participant_id, day, level_en, plan: dict):
     """
@@ -70,16 +115,25 @@ def save_plan_to_file(participant_id, day, level_en, plan: dict):
     with fname.open("w", encoding="utf-8") as f:
         json.dump(plan, f, ensure_ascii=False, indent=2)
 
-def load_plan_from_file(participant_id, day, level_en):
+
+def load_plan_from_file(participant_id, current_day, level_en):
     """
-    保存済みの plan を読み込む。なければ None を返す。
-    （今は「同じ day のみ」見る。必要なら過去 day もさかのぼる仕様にしてもよい）
+    保存済みの plan を読み込む。
+
+    - 同じ level_en（low / medium / high）の day を
+      current_day から 1 まで逆順にさかのぼって探す。
+    - 一番新しい day のファイルを見つけたらそれを返す。
+    - 見つからなければ None を返す。
     """
-    fname = PLAN_DIR / f"{participant_id}_day{day}_{level_en}.json"
-    if not fname.exists():
-        return None
-    with fname.open("r", encoding="utf-8") as f:
-        return json.load(f)
+    for d in range(current_day, 0, -1):
+        if level_for_day(d) != level_en:
+            continue
+
+        fname = PLAN_DIR / f"{participant_id}_day{d}_{level_en}.json"
+        if fname.exists():
+            with fname.open("r", encoding="utf-8") as f:
+                return json.load(f)
+    return None
 
 
 # ======================
@@ -96,7 +150,6 @@ def load_previous_p_history(participant_id, current_day):
         return []
 
     rows = []
-    # 古いUTF-8ログが混ざっていても落ちないように、errors="ignore" を付ける
     with LOG_FILE.open("r", encoding="cp932", errors="ignore") as f:
         reader = csv.DictReader(f)
         for row in reader:
@@ -316,16 +369,10 @@ participant_id = st.session_state.participant_id
 day = st.session_state.day
 st.info(f"参加者ID: {participant_id} / Day: {day}")
 
-# day → level 判定
-if day in (1, 2):
-    level_en = "low"
-    level_ja = "低"
-elif day in (3, 4):
-    level_en = "medium"
-    level_ja = "中"
-else:
-    level_en = "high"
-    level_ja = "高"
+# day → level 判定（画面用 & デフォルト値用）
+level_en = level_for_day(day)
+level_ja = "低" if level_en == "low" else ("中" if level_en == "medium" else "高")
+first_day_flag = is_first_day_of_level(day)
 
 # エージェント選択
 agent = st.radio(
@@ -341,14 +388,17 @@ if "history_h" not in st.session_state:
 if "plans" not in st.session_state:
     st.session_state.plans = {}
 
+
 def get_history():
     return st.session_state.history_p if agent.startswith("Agent-P") else st.session_state.history_h
+
 
 def append_history(msg):
     if agent.startswith("Agent-P"):
         st.session_state.history_p.append(msg)
     else:
         st.session_state.history_h.append(msg)
+
 
 # これまでの履歴表示
 history = get_history()
@@ -378,30 +428,59 @@ if user_input:
 
     # ==== system_prompt を組み立て ====
     if agent.startswith("Agent-P"):
+        # レベルと「そのレベルの1日目か2日目か」を明示
         header = f"""
-今日は全6日間のオンライン暴露トレーニングのうち「{day}日目」です。
+今日は全6日間のオンライン暴露トレーニングのうち「Day{day}」です。
 想定している暴露レベルは「{level_ja}」（level = "{level_en}"）です。
 """
+
+        if first_day_flag:
+            # 1,3,5日目：そのレベルの「2日分の課題」をまとめて設計してほしい
+            header += """
+今日はこのレベルの1日目です。
+今日と翌日（同じレベルの2日目）に行う練習シーンを、少なくとも2つのシナリオとして plan.scenarios にまとめてください。
+- 例えば Day1 用の練習シーンと Day2 用の練習シーンのように、
+  同じレベルの中で難易度や状況が少しずつ変わる2つの課題を用意してください。
+"""
+        else:
+            # 2,4,6日目：フィードバック日。plan は更新しない。
+            header += """
+今日はこのレベルの2日目です。
+暴露課題の設計（plan）はすでに前回の1日目で完了しています。
+今日は「前回決めた課題を実際にやってみた結果の振り返り」と
+「次のレベルに進む心構えを整えるための軽いフィードバック」を主な目的としてください。
+
+- 新しい暴露シーンを設計したり、既存の plan を作り直したりしないでください。
+- JSON で返す "plan" フィールドは必ず null のままにしてください。
+"""
+
         base_prompt = header + AGENT_P_SYSTEM_PROMPT_BODY
+
     else:
-        # H側：Pのplanがあればそれを使う（まずセッション中のメモリ）
+        # Agent-H 側：Pのplanがあればそれを使う（まずセッション中のメモリ）
         plan_for_level = st.session_state.plans.get(level_en)
 
-        # セッション中メモリに無ければ、ファイルから読み込む
+        # セッション中メモリに無ければ、ファイルから読み込む（同レベルの日付をさかのぼる）
         if not plan_for_level:
             plan_for_level = load_plan_from_file(participant_id, day, level_en)
 
         if plan_for_level and plan_for_level.get("scenarios"):
-            s0 = plan_for_level["scenarios"][0]
+            scenarios = plan_for_level["scenarios"]
+            idx = scenario_index_for_day(day, level_en, len(scenarios))
+            s = scenarios[idx]
+
             base_prompt = AGENT_H_SYSTEM_PROMPT_TEMPLATE.format(
                 level_ja=level_ja,
                 level_en=level_en,
-                title=s0.get("title", ""),
-                interaction_role=s0.get("interaction_role", ""),
-                exposure_scenario=s0.get("exposure_scenario", ""),
-                user_task=s0.get("user_task", ""),
+                title=s.get("title", ""),
+                interaction_role=s.get("interaction_role", ""),
+                exposure_scenario=s.get("exposure_scenario", ""),
+                user_task=s.get("user_task", ""),
             )
-            st.info("※ このAgent-Hは、Agent-Pが作成した暴露プランに基づいて話しています。")
+            st.info(
+                f"※ このAgent-Hは、Agent-Pが作成した {level_ja}レベルの暴露プラン "
+                f"(シナリオ index={idx}) に基づいて話しています。"
+            )
         else:
             base_prompt = AGENT_H_FALLBACK_PROMPT
             st.warning("※ まだこのレベルの暴露プランが保存されていません。Agent-Hは汎用の友人モードです。")
@@ -412,7 +491,7 @@ if user_input:
     with st.expander("研究者用：現在の system prompt", expanded=False):
         st.write(system_prompt)
 
-    # ★ Agent-P のときだけ、過去のPセッションの会話を読み込む
+    # Agent-P のときだけ、過去のPセッションの会話を読み込む
     previous_p_history = []
     if agent.startswith("Agent-P"):
         previous_p_history = load_previous_p_history(
@@ -457,13 +536,13 @@ if user_input:
                 first_nl = clean.find("\n")
                 last_fence = clean.rfind("```")
                 if first_nl != -1 and last_fence != -1:
-                    clean = clean[first_nl+1:last_fence].strip()
+                    clean = clean[first_nl + 1:last_fence].strip()
 
             # 先頭のしゃべりを飛ばして、{ ... } だけ抜き出す
             start = clean.find("{")
             end = clean.rfind("}")
             if start != -1 and end != -1 and end > start:
-                json_str = clean[start:end+1]
+                json_str = clean[start:end + 1]
             else:
                 json_str = clean  # 最悪そのまま試す
 
@@ -496,7 +575,7 @@ if user_input:
                 st.session_state.plans[plan_level] = plan
                 save_plan_to_file(participant_id, day, plan_level, plan)
 
-                with st.expander("研究者用：保存された暴露プラン", expanded=True):
+                with st.expander("研究者用：保存された暴露プラン（今回のターンで更新）", expanded=True):
                     st.write(plan)
 
         st.markdown(reply_text)
@@ -510,7 +589,7 @@ if user_input:
 
 
 # ======================
-# 研究者用：現在の保存済みプラン一覧（常に一番下に最新を出す）
+# 研究者用：現在の保存済みプラン一覧
 # ======================
 
 with st.expander("研究者用：現在の保存済みプラン一覧", expanded=False):
