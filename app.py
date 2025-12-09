@@ -5,8 +5,6 @@ import json
 from datetime import datetime
 from pathlib import Path
 import csv
-import re  # ← 追加：planだけ救出する用
-
 
 # ======================
 # 環境変数（OpenRouterキー & 管理パスコード）
@@ -92,7 +90,7 @@ def scenario_index_for_day(day: int, level_en: str, scenarios_len: int) -> int:
     if idx < 0:
         idx = 0
     if idx >= scenarios_len:
-        idx = scenarios_len - 1
+        idx = max(0, scenarios_len - 1)
     return idx
 
 
@@ -272,10 +270,24 @@ AGENT_H_SYSTEM_PROMPT_TEMPLATE = """
 ユーザーが Your Task に書かれた行動に挑戦できるように、自然な会話をすることです。
 
 会話の進め方：
- ロールプレイ
-  - 上の Interaction Role / Exposure Scenario に沿って相手役を演じてください。
-  - ユーザーが Your Task に挑戦したら、それに対して自然な反応を返してください。
-  
+- 返答は、基本的に 1〜3文程度の短い発話にしてください。
+- ユーザーが何か話したときは、
+  1) まずその内容に対するリアクション（「そっか」「なるほどね」など）を軽く返し、
+  2) そのあとに、状況に合った一言コメントや、簡単な質問を続けてください。
+- シーン設定（カフェ・教室など）を毎回説明し直さず、
+  実際にその場にいる友人として、自然な会話を心がけてください。
+
+ロールプレイ開始の合図について：
+- ユーザーが「始めてください」「ロールプレイを始めたい」「練習をスタートしたい」など、
+  練習開始の合図になる発言をした場合、
+  そのメッセージは「シーン開始のきっかけ」とみなし、
+  あなたの次の返答では「メタな説明」をせずに、
+  シーンの中で自然に出てきそうな第一声から話し始めてください。
+  例：
+    - カフェのシーンなら「このコーヒー、思ったよりおいしいね」など。
+    - 教室のシーンなら「さっきの授業、結構むずかしくなかった？」など。
+- 「では練習を始めますね」「今からロールプレイをします」などの説明的な文章は避けてください。
+
 重要：
 - あなた（Agent-H）は、暴露課題の計画そのものを変更しないでください。
 - あなたが返すJSONでは、必ず "plan": null にしてください。
@@ -286,9 +298,22 @@ AGENT_H_FALLBACK_PROMPT = """
 まだセラピスト（Agent-P）から具体的な暴露課題のシナリオが渡されていません。
 そのため、今はユーザーの最近の出来事や、人前で不安を感じる場面について、
 友人として自然に話を聞き、共感的に会話してください。
+
+会話のスタイル：
+- 返答は、基本的に 1〜3文程度の短い発話にしてください。
+- ユーザーが何か話したときは、
+  1) まずその内容に対するリアクション（「そっか」「そうなんだ」など）を返し、
+  2) そのあとに、話を広げるための一言コメントや簡単な質問を続けてください。
+- 「セラピー」「暴露」といった言葉は基本的に使わず、
+  あくまで友人として自然に会話してください。
+
+ロールプレイ開始の合図について：
+- ユーザーが「始めてください」「ロールプレイを始めたい」「練習をスタートしたい」などと言った場合も、
+  それを合図として、シーンの中で自然に出てきそうな第一声から会話を始めてください。
+- 「今から練習を始めます」など、メタな説明は避けてください。
+
 あなたが返すJSONでは、必ず "plan": null にしてください。
 """
-
 
 # JSON 形式の共通指示（P/H両方に付ける）
 JSON_INSTRUCTION = """
@@ -309,11 +334,11 @@ JSON_INSTRUCTION = """
   }
 }
 
-重要：
-- 出力全体はこのJSONオブジェクト1つだけにしてください。
-- 1文字目を「{」にし、その前に文章や改行やマークダウン (```json など) を絶対に入れないでください。
-- 日本語の文章や説明は必ず text フィールドの中にのみ書いてください。
-- JSON以外の文字（説明文やコメント）は絶対に出さないでください。
+/*
+  - セラピストAgent-Pのときのみ、セッションの最後に "plan" を埋めてください。
+  - それ以外のターン、またはAgent-Hのときは、必ず "plan": null としてください。
+  - JSON以外の文字（説明文やコメント）は絶対に出さないでください。
+*/
 """
 
 
@@ -435,6 +460,13 @@ if user_input:
 今日と翌日（同じレベルの2日目）に行う練習シーンを、少なくとも2つのシナリオとして plan.scenarios にまとめてください。
 - 例えば Day1 用の練習シーンと Day2 用の練習シーンのように、
   同じレベルの中で難易度や状況が少しずつ変わる2つの課題を用意してください。
+- plan.scenarios[0] は「このレベルの1日目に実施するシーン」として、
+  plan.scenarios[1] は「このレベルの2日目に実施するシーン」として設計してください。
+
+クライアントへの返答本文（text）の中でも、
+- 「今日はこのうちシーン1をAgent-Hと一緒に練習します」
+- 「明日はシーン2をAgent-Hと一緒に練習する予定です」
+のように、どのシーンを今日／翌日に使うかを、はっきりと説明してください。
 """
         else:
             # 2,4,6日目：フィードバック日。plan は更新しない。
@@ -446,6 +478,33 @@ if user_input:
 
 - 新しい暴露シーンを設計したり、既存の plan を作り直したりしないでください。
 - JSON で返す "plan" フィールドは必ず null のままにしてください。
+"""
+
+            # ここで前回の plan を読み込み、「今日のシーン」を要約して伝えるよう指示
+            existing_plan = load_plan_from_file(participant_id, day, level_en)
+            if existing_plan and existing_plan.get("scenarios"):
+                scs = existing_plan["scenarios"]
+                idx = scenario_index_for_day(day, level_en, len(scs))
+                s = scs[idx]
+                header += f"""
+前回、このレベルの1日目に「今日の練習」として決めていたシーンの要約は次の通りです。
+
+[今日の練習シーンの要約]
+- シナリオ名: {s.get("title", "")}
+- Interaction Role: {s.get("interaction_role", "")}
+- Exposure Scenario: {s.get("exposure_scenario", "")}
+- Your Task: {s.get("user_task", "")}
+
+今日は、このシーンを実際にやってみてどうだったかをクライアントと一緒に振り返り、
+うまくいった点や難しかった点を確認してください。
+そのうえで、次のレベル（中・高レベル）に進む際の心構えやコーピングのアイデアを、
+短く整理して伝えてください。
+"""
+            else:
+                header += """
+（注）システム側で前回の暴露シーンを取得できなかった場合でも、
+クライアントに前回の練習内容を簡単に確認しながら、
+今日の振り返りと次のレベルへの準備を行ってください。
 """
 
         base_prompt = header + AGENT_P_SYSTEM_PROMPT_BODY
@@ -522,66 +581,45 @@ if user_input:
             data = res.json()
             raw = data["choices"][0]["message"]["content"]
 
-            # ==========================
-            #  LLMレスポンスのパース部
-            #  - 前置きしゃべりや ```json を許容
-            #  - 全体JSONが壊れていても "plan" だけ救出を試みる
-            # ==========================
+            # ==== JSONとして解釈（```json ～ ``` や前置きの文章があっても対応）====
             clean = raw.strip()
 
-            # ``` で囲まれていたら中だけ取り出す
+            # もし ``` で囲まれていたら中身だけ抜き出す
             if clean.startswith("```"):
                 first_nl = clean.find("\n")
                 last_fence = clean.rfind("```")
                 if first_nl != -1 and last_fence != -1:
                     clean = clean[first_nl + 1:last_fence].strip()
 
-            # 先頭と末尾の { } を探して JSON 全体を抜き出す
+            # 先頭のしゃべりを飛ばして、{ ... } だけ抜き出す
             start = clean.find("{")
             end = clean.rfind("}")
             if start != -1 and end != -1 and end > start:
                 json_str = clean[start:end + 1]
             else:
-                json_str = clean  # 最悪そのまま
+                json_str = clean  # 最悪そのまま試す
 
-            parsed = {}
-            plan = None
-
-            # まずは全体 JSON をパース
             try:
                 parsed = json.loads(json_str)
-                plan = parsed.get("plan", None)
             except Exception:
-                # ここで諦めず "plan": { ... } だけ救出を試みる
-                try:
-                    m = re.search(r'"plan"\\s*:\\s*(\\{.*\\})', clean, re.DOTALL)
-                    if m:
-                        plan_obj_str = m.group(1)
-                        plan = json.loads(plan_obj_str)
-                except Exception:
-                    plan = None
-
-            # text / emotion は取れれば使う、ダメなら raw をそのまま表示
-            if isinstance(parsed, dict) and "text" in parsed:
-                reply_text = parsed["text"]
+                parsed = {}
+                raw_text = raw
             else:
-                reply_text = raw
+                raw_text = parsed.get("text", raw)
 
-            if isinstance(parsed, dict) and "emotion" in parsed:
-                emotion = parsed["emotion"]
-            else:
-                emotion = "unknown"
+            reply_text = parsed.get("text", raw_text)
+            emotion = parsed.get("emotion", "unknown")
+            plan = parsed.get("plan", None)
 
-            # デバッグ用：研究者向けに中身を確認
+            # デバッグ用：生レスポンスとパース結果
             with st.expander("研究者用：LLM生レスポンス＆パース結果", expanded=False):
                 st.write("raw:", raw)
                 st.write("clean(for json):", clean)
                 st.write("json_str(for loads):", json_str)
                 st.write("parsed:", parsed)
-                st.write("plan (extracted):", plan)
                 st.write("plan type:", str(type(plan)))
 
-            # plan が dict なら、メモリ＋ファイルに保存
+            # plan が dict なら、保存（メモリ＋ファイル）
             if isinstance(plan, dict):
                 plan_level = plan.get("level", level_en)
                 if plan_level not in ("low", "medium", "high"):
@@ -593,7 +631,6 @@ if user_input:
                 with st.expander("研究者用：保存された暴露プラン（今回のターンで更新）", expanded=True):
                     st.write(plan)
 
-        # ---- 画面表示 ----
         st.markdown(reply_text)
         st.caption(f"emotion: {emotion}")
 
