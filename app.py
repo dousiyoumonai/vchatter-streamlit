@@ -5,6 +5,8 @@ import json
 from datetime import datetime
 from pathlib import Path
 import csv
+import re  # ← 追加：planだけ救出する用
+
 
 # ======================
 # 環境変数（OpenRouterキー & 管理パスコード）
@@ -287,6 +289,7 @@ AGENT_H_FALLBACK_PROMPT = """
 あなたが返すJSONでは、必ず "plan": null にしてください。
 """
 
+
 # JSON 形式の共通指示（P/H両方に付ける）
 JSON_INSTRUCTION = """
 必ず次のJSON形式で返答してください：
@@ -306,11 +309,11 @@ JSON_INSTRUCTION = """
   }
 }
 
-/*
-  - セラピストAgent-Pのときのみ、セッションの最後に "plan" を埋めてください。
-  - それ以外のターン、またはAgent-Hのときは、必ず "plan": null としてください。
-  - JSON以外の文字（説明文やコメント）は絶対に出さないでください。
-*/
+重要：
+- 出力全体はこのJSONオブジェクト1つだけにしてください。
+- 1文字目を「{」にし、その前に文章や改行やマークダウン (```json など) を絶対に入れないでください。
+- 日本語の文章や説明は必ず text フィールドの中にのみ書いてください。
+- JSON以外の文字（説明文やコメント）は絶対に出さないでください。
 """
 
 
@@ -454,7 +457,6 @@ if user_input:
         # セッション中メモリに無ければ、ファイルから読み込む（同レベルの日付をさかのぼる）
         if not plan_for_level:
             plan_for_level = load_plan_from_file(participant_id, day, level_en)
-            # ←★ ここが重要：読み込んだら session_state にも反映する
             if plan_for_level:
                 st.session_state.plans[level_en] = plan_for_level
 
@@ -520,45 +522,66 @@ if user_input:
             data = res.json()
             raw = data["choices"][0]["message"]["content"]
 
-            # ==== JSONとして解釈（```json ～ ``` や前置きの文章があっても対応）====
+            # ==========================
+            #  LLMレスポンスのパース部
+            #  - 前置きしゃべりや ```json を許容
+            #  - 全体JSONが壊れていても "plan" だけ救出を試みる
+            # ==========================
             clean = raw.strip()
 
-            # もし ``` で囲まれていたら中身だけ抜き出す
+            # ``` で囲まれていたら中だけ取り出す
             if clean.startswith("```"):
                 first_nl = clean.find("\n")
                 last_fence = clean.rfind("```")
                 if first_nl != -1 and last_fence != -1:
                     clean = clean[first_nl + 1:last_fence].strip()
 
-            # 先頭のしゃべりを飛ばして、{ ... } だけ抜き出す
+            # 先頭と末尾の { } を探して JSON 全体を抜き出す
             start = clean.find("{")
             end = clean.rfind("}")
             if start != -1 and end != -1 and end > start:
                 json_str = clean[start:end + 1]
             else:
-                json_str = clean  # 最悪そのまま試す
+                json_str = clean  # 最悪そのまま
 
+            parsed = {}
+            plan = None
+
+            # まずは全体 JSON をパース
             try:
                 parsed = json.loads(json_str)
+                plan = parsed.get("plan", None)
             except Exception:
-                parsed = {}
-                raw_text = raw
+                # ここで諦めず "plan": { ... } だけ救出を試みる
+                try:
+                    m = re.search(r'"plan"\\s*:\\s*(\\{.*\\})', clean, re.DOTALL)
+                    if m:
+                        plan_obj_str = m.group(1)
+                        plan = json.loads(plan_obj_str)
+                except Exception:
+                    plan = None
+
+            # text / emotion は取れれば使う、ダメなら raw をそのまま表示
+            if isinstance(parsed, dict) and "text" in parsed:
+                reply_text = parsed["text"]
             else:
-                raw_text = parsed.get("text", raw)
+                reply_text = raw
 
-            reply_text = parsed.get("text", raw_text)
-            emotion = parsed.get("emotion", "unknown")
-            plan = parsed.get("plan", None)
+            if isinstance(parsed, dict) and "emotion" in parsed:
+                emotion = parsed["emotion"]
+            else:
+                emotion = "unknown"
 
-            # デバッグ用：生レスポンスとパース結果
+            # デバッグ用：研究者向けに中身を確認
             with st.expander("研究者用：LLM生レスポンス＆パース結果", expanded=False):
                 st.write("raw:", raw)
                 st.write("clean(for json):", clean)
                 st.write("json_str(for loads):", json_str)
                 st.write("parsed:", parsed)
+                st.write("plan (extracted):", plan)
                 st.write("plan type:", str(type(plan)))
 
-            # plan が dict なら、保存（メモリ＋ファイル）
+            # plan が dict なら、メモリ＋ファイルに保存
             if isinstance(plan, dict):
                 plan_level = plan.get("level", level_en)
                 if plan_level not in ("low", "medium", "high"):
@@ -570,6 +593,7 @@ if user_input:
                 with st.expander("研究者用：保存された暴露プラン（今回のターンで更新）", expanded=True):
                     st.write(plan)
 
+        # ---- 画面表示 ----
         st.markdown(reply_text)
         st.caption(f"emotion: {emotion}")
 
