@@ -39,14 +39,12 @@ LOG_HEADERS = [
     "emotion",
 ]
 
-
 def init_log_file():
     if not LOG_FILE.exists():
         # Excel（日本語環境）が期待する cp932 で書き出す
         with LOG_FILE.open("w", newline="", encoding="cp932") as f:
             writer = csv.writer(f)
             writer.writerow(LOG_HEADERS)
-
 
 def log_row(participant_id, day, agent, role, text, emotion=""):
     init_log_file()
@@ -69,18 +67,16 @@ def level_for_day(day: int) -> str:
     else:
         return "high"
 
-
 def is_first_day_of_level(day: int) -> bool:
     """そのレベルの1日目かどうか（1,3,5 が True）"""
     return day in (1, 3, 5)
 
-
 def scenario_index_for_day(day: int, level_en: str, scenarios_len: int) -> int:
     """
     同じレベルの中で「何日目か」に応じて使うシナリオのインデックスを返す。
-    - low:  Day1 -> 0, Day2 -> 1
+    - low:    Day1 -> 0, Day2 -> 1
     - medium: Day3 -> 0, Day4 -> 1
-    - high: Day5 -> 0, Day6 -> 1
+    - high:   Day5 -> 0, Day6 -> 1
     scenarios_len が 1 しかない場合は 0 に丸める。
     """
     if level_en == "low":
@@ -105,7 +101,6 @@ def scenario_index_for_day(day: int, level_en: str, scenarios_len: int) -> int:
 PLAN_DIR = Path("plans")
 PLAN_DIR.mkdir(exist_ok=True)
 
-
 def save_plan_to_file(participant_id, day, level_en, plan: dict):
     """
     P が出した plan を JSON で保存する。
@@ -114,7 +109,6 @@ def save_plan_to_file(participant_id, day, level_en, plan: dict):
     fname = PLAN_DIR / f"{participant_id}_day{day}_{level_en}.json"
     with fname.open("w", encoding="utf-8") as f:
         json.dump(plan, f, ensure_ascii=False, indent=2)
-
 
 def load_plan_from_file(participant_id, current_day, level_en):
     """
@@ -128,7 +122,6 @@ def load_plan_from_file(participant_id, current_day, level_en):
     for d in range(current_day, 0, -1):
         if level_for_day(d) != level_en:
             continue
-
         fname = PLAN_DIR / f"{participant_id}_day{d}_{level_en}.json"
         if fname.exists():
             with fname.open("r", encoding="utf-8") as f:
@@ -294,6 +287,7 @@ AGENT_H_FALLBACK_PROMPT = """
 あなたが返すJSONでは、必ず "plan": null にしてください。
 """
 
+# JSON 形式の共通指示（P/H両方に付ける）
 JSON_INSTRUCTION = """
 必ず次のJSON形式で返答してください：
 {
@@ -369,7 +363,7 @@ participant_id = st.session_state.participant_id
 day = st.session_state.day
 st.info(f"参加者ID: {participant_id} / Day: {day}")
 
-# day → level 判定（画面用 & デフォルト値用）
+# day → level 判定
 level_en = level_for_day(day)
 level_ja = "低" if level_en == "low" else ("中" if level_en == "medium" else "高")
 first_day_flag = is_first_day_of_level(day)
@@ -388,17 +382,14 @@ if "history_h" not in st.session_state:
 if "plans" not in st.session_state:
     st.session_state.plans = {}
 
-
 def get_history():
     return st.session_state.history_p if agent.startswith("Agent-P") else st.session_state.history_h
-
 
 def append_history(msg):
     if agent.startswith("Agent-P"):
         st.session_state.history_p.append(msg)
     else:
         st.session_state.history_h.append(msg)
-
 
 # これまでの履歴表示
 history = get_history()
@@ -463,6 +454,9 @@ if user_input:
         # セッション中メモリに無ければ、ファイルから読み込む（同レベルの日付をさかのぼる）
         if not plan_for_level:
             plan_for_level = load_plan_from_file(participant_id, day, level_en)
+            # ←★ ここが重要：読み込んだら session_state にも反映する
+            if plan_for_level:
+                st.session_state.plans[level_en] = plan_for_level
 
         if plan_for_level and plan_for_level.get("scenarios"):
             scenarios = plan_for_level["scenarios"]
@@ -494,11 +488,9 @@ if user_input:
     # Agent-P のときだけ、過去のPセッションの会話を読み込む
     previous_p_history = []
     if agent.startswith("Agent-P"):
-        previous_p_history = load_previous_p_history(
-            participant_id,
-            day,
-        )
+        previous_p_history = load_previous_p_history(participant_id, day)
 
+    # messages = [system] + (過去のP会話) + (今日のセッションの履歴)
     messages = (
         [{"role": "system", "content": system_prompt}]
         + previous_p_history
