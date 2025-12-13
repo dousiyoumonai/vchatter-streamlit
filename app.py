@@ -18,7 +18,7 @@ if not OPENROUTER_API_KEY:
     st.stop()
 
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
-MODEL_NAME = "openai/gpt-4o-mini"
+MODEL_NAME = "openai/gpt-5-mini"
 
 
 # ======================
@@ -674,3 +674,4 @@ if LOG_FILE.exists():
         )
 else:
     st.text("まだログファイルがありません。")
+
